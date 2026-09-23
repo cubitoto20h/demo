@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Quản lý sinh viên</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 15px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .faculty-selection,
+        .student-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        input,
+        select,
+        button {
+            padding: 8px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid #cccccc;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #eeeeee;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            color: #555555;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Quản lý sinh viên</h1>
+
+<div class="faculty-selection">
+    <label for="facultySelect">Khoa:</label>
+
+    <select id="facultySelect">
+        <option value="Computer Science">Computer Science</option>
+        <option value="Business Administration">Business Administration</option>
+        <option value="Engineering">Engineering</option>
+    </select>
+
+    <button id="loadButton">Tải danh sách</button>
+</div>
+
+<p id="message" class="message"></p>
+
+<form id="studentForm" class="student-form">
+    <input type="hidden" id="editIndex">
+
+    <input
+        type="number"
+        id="studentId"
+        placeholder="Mã sinh viên"
+        required
+    >
+
+    <input
+        type="text"
+        id="studentName"
+        placeholder="Tên sinh viên"
+        required
+    >
+
+    <input
+        type="email"
+        id="studentEmail"
+        placeholder="Email"
+        required
+    >
+
+    <button type="submit" id="saveButton">Thêm</button>
+    <button type="button" id="cancelButton" hidden>Hủy</button>
+</form>
+
+<table>
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>Họ tên</th>
+        <th>Email</th>
+        <th>Thao tác</th>
+    </tr>
+    </thead>
+
+    <tbody id="studentTableBody"></tbody>
+</table>
+
+<script>
+    const API_URL = "/api/faculties/by-name";
+
+    const facultySelect = document.getElementById("facultySelect");
+    const loadButton = document.getElementById("loadButton");
+    const studentForm = document.getElementById("studentForm");
+    const studentTableBody = document.getElementById("studentTableBody");
+
+    const editIndexInput = document.getElementById("editIndex");
+    const studentIdInput = document.getElementById("studentId");
+    const studentNameInput = document.getElementById("studentName");
+    const studentEmailInput = document.getElementById("studentEmail");
+
+    const saveButton = document.getElementById("saveButton");
+    const cancelButton = document.getElementById("cancelButton");
+    const message = document.getElementById("message");
+
+    let students = [];
+
+    loadButton.addEventListener("click", loadStudents);
+    studentForm.addEventListener("submit", saveStudent);
+    cancelButton.addEventListener("click", resetForm);
+
+    async function loadStudents() {
+        const facultyName = facultySelect.value;
+        const storageKey = getStorageKey();
+
+        message.textContent = "Đang tải dữ liệu...";
+
+        try {
+            const response = await fetch(
+                `${API_URL}/${encodeURIComponent(facultyName)}/students`
+            );
+
+            if (!response.ok) {
+                throw new Error("Không tìm thấy khoa hoặc không tải được dữ liệu");
+            }
+
+            const apiStudents = await response.json();
+            const savedStudents = localStorage.getItem(storageKey);
+
+            students = savedStudents
+                ? JSON.parse(savedStudents)
+                : apiStudents;
+
+            saveToLocalStorage();
+            renderStudents();
+
+            message.textContent =
+                `Đã tải ${students.length} sinh viên của khoa ${facultyName}.`;
+        } catch (error) {
+            students = [];
+            renderStudents();
+            message.textContent = error.message;
+        }
+    }
+
+    function renderStudents() {
+        studentTableBody.innerHTML = "";
+
+        students.forEach(function (student, index) {
+            const row = document.createElement("tr");
+
+            const idCell = document.createElement("td");
+            idCell.textContent = student.id;
+
+            const nameCell = document.createElement("td");
+            nameCell.textContent = student.name;
+
+            const emailCell = document.createElement("td");
+            emailCell.textContent = student.email;
+
+            const actionCell = document.createElement("td");
+
+            const editButton = document.createElement("button");
+            editButton.textContent = "Sửa";
+            editButton.addEventListener("click", function () {
+                editStudent(index);
+            });
+
+            const deleteButton = document.createElement("button");
+            deleteButton.textContent = "Xóa";
+            deleteButton.addEventListener("click", function () {
+                deleteStudent(index);
+            });
+
+            actionCell.appendChild(editButton);
+            actionCell.appendChild(document.createTextNode(" "));
+            actionCell.appendChild(deleteButton);
+
+            row.appendChild(idCell);
+            row.appendChild(nameCell);
+            row.appendChild(emailCell);
+            row.appendChild(actionCell);
+
+            studentTableBody.appendChild(row);
+        });
+    }
+
+    function saveStudent(event) {
+        event.preventDefault();
+
+        const student = {
+            id: Number(studentIdInput.value),
+            name: studentNameInput.value.trim(),
+            email: studentEmailInput.value.trim()
+        };
+
+        const editIndex = editIndexInput.value;
+
+        if (editIndex === "") {
+            const duplicatedId = students.some(function (item) {
+                return item.id === student.id;
+            });
+
+            if (duplicatedId) {
+                message.textContent = "ID sinh viên đã tồn tại.";
+                return;
+            }
+
+            students.push(student);
+            message.textContent = "Đã thêm sinh viên.";
+        } else {
+            const index = Number(editIndex);
+
+            const duplicatedId = students.some(function (item, currentIndex) {
+                return item.id === student.id && currentIndex !== index;
+            });
+
+            if (duplicatedId) {
+                message.textContent = "ID sinh viên đã tồn tại.";
+                return;
+            }
+
+            students[index] = student;
+            message.textContent = "Đã cập nhật sinh viên.";
+        }
+
+        saveToLocalStorage();
+        renderStudents();
+        resetForm();
+    }
+
+    function editStudent(index) {
+        const student = students[index];
+
+        editIndexInput.value = index;
+        studentIdInput.value = student.id;
+        studentNameInput.value = student.name;
+        studentEmailInput.value = student.email;
+
+        saveButton.textContent = "Cập nhật";
+        cancelButton.hidden = false;
+
+        studentNameInput.focus();
+    }
+
+    function deleteStudent(index) {
+        const student = students[index];
+
+        const accepted = confirm(
+            `Bạn có muốn xóa sinh viên "${student.name}" không?`
+        );
+
+        if (!accepted) {
+            return;
+        }
+
+        students.splice(index, 1);
+
+        saveToLocalStorage();
+        renderStudents();
+        resetForm();
+
+        message.textContent = "Đã xóa sinh viên.";
+    }
+
+    function resetForm() {
+        studentForm.reset();
+        editIndexInput.value = "";
+        saveButton.textContent = "Thêm";
+        cancelButton.hidden = true;
+    }
+
+    function getStorageKey() {
+        return `students-${facultySelect.value}`;
+    }
+
+    function saveToLocalStorage() {
+        localStorage.setItem(
+            getStorageKey(),
+            JSON.stringify(students)
+        );
+    }
+
+    loadStudents();
+</script>
+
+</body>
+</html>
